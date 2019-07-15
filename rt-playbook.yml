@@ -1,0 +1,193 @@
+---
+- hosts: webservers
+  become: yes
+#    vars:
+#      http_port: 80
+#      max_clients: 200
+#    remote_user: root
+  tasks:
+    - name: Make sure we have a 'wheel' group
+      group:
+        name: wheel
+        state: present
+
+    - name: Allow 'wheel' group to have passwordless sudo
+      lineinfile:
+        dest: /etc/sudoers
+        state: present
+        regexp: '^%wheel'
+        line: '%wheel ALL=(ALL) NOPASSWD: ALL'
+        validate: 'visudo -cf %s'
+
+    - name: Add sudoers users to wheel group
+      user: name=deployer groups=wheel append=yes state=present createhome=yes
+
+    - name: Put SELinux in permissive mode, logging actions that would be blocked.
+      selinux:
+        policy: targeted
+        state: permissive
+    - firewalld:
+        port: 80/tcp
+        permanent: yes
+        state: enabled
+    - firewalld:
+        port: 443/tcp
+        permanent: yes
+        state: enabled
+    - name: yum repo - yum
+      yum:
+        name: https://centos7.iuscommunity.org/ius-release.rpm
+    - name: upgarde all packages
+      yum:
+        name: '*'
+        state: latest
+    - name: Install yum utils
+      yum:
+        name:
+           - centos-release-scl.noarch
+           - yum-utils
+           - device-mapper-persistent-data
+           - lvm2
+           - centos-release-scl-rh.noarch
+           - python36u
+           - python36u-libs
+           - python36u-devel
+           - python36u-pip
+           - python-pip
+        state: latest
+    - pip:
+        name:
+#           - docker-py 
+           - docker-compose
+    - name: Git Installation
+      yum:
+        name: git
+        state: latest
+#    - name: Docker legacy remove
+#      yum:
+#        name:
+#          - docker
+#          - docker-client
+#          - docker-client-latest
+#          - docker-common
+#          - docker-latest
+#          - 
+#        state: latest
+#    - name: Docker Installation repo
+#      yum_repository:
+#        name: docker-ce.repo
+#        description: docker repo
+#        mirrorlist: https://download.docker.com/linux/centos/docker-ce.repo
+#        enabled: yes
+#        gpgcheck: 1
+#        gpgkey: https://download.docker.com/linux/centos/gpg
+    - name: Add docker repo
+      get_url:
+        url: https://download.docker.com/linux/centos/docker-ce.repo
+        dest: /etc/yum.repos.d/docker-ce.repo
+      become: yes
+    - name: Enable Docker test repo
+      ini_file:
+        dest: /etc/yum.repos.d/docker-ce.repo
+        section: 'docker-ce-test'
+        option: enabled
+        value: 0
+      become: yes
+#    - name: Install Docker - apt_rpm
+#      apt_rpm:
+#        pkg: docker-ce
+#        state: present
+#      become: yes
+    - name: Docker Installation - yum
+      yum:
+        name: https://download.docker.com/linux/centos/7/x86_64/stable/Packages/docker-ce-18.09.7-3.el7.x86_64.rpm 
+#          - docker-ce
+#          - docker-ce-cli
+#          - containerd.io
+    - name: yum repo - yum
+      yum:
+        name: https://centos7.iuscommunity.org/ius-release.rpm
+
+        state: latest
+    - name: enable docker service
+      systemd: 
+        name: docker
+        state: started
+        enabled: yes
+    - name: Start Docker service
+      service:
+        name: docker
+        state: started
+        enabled: yes
+      become: yes
+
+    - name: add user vagrant to docker group
+      user:
+        name: vagrant
+        groups: docker
+        append: yes
+      become: yes
+#    - name: Docker-Compose Installation repo
+#      yum_repository:
+#        name: docker-ce.repo
+#        description: docker repo
+#        mirrorlist: https://download.docker.com/linux/centos/docker-ce.repo
+#        enabled: yes
+#        gpgcheck: 1
+#        gpgkey: https://download.docker.com/linux/centos/gpg
+    - name: Download Docker-Compose
+      get_url:
+        url: https://github.com/docker/compose/releases/download/1.24.0/run.sh  # "https://github.com/docker/compose/releases/download/1.24.0/docker-compose-$(uname -s)-$(uname -m)"
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+      become: yes
+#    - name: Docker-Compose Installation
+#      yum:
+#        name: docker-compose
+#        state: latest
+    - name: Add docker-compose repo
+      get_url:
+        url: https://download.docker.com/linux/centos/docker-ce.repo
+        dest: /etc/yum.repos.d/docker-ce.repo
+      become: yes
+    - name: Enable Docker test repo
+      ini_file:
+        dest: /etc/yum.repos.d/docker-ce.repo
+        section: 'docker-ce-test'
+        option: enabled
+        value: 0
+      become: yes
+#    - name: Install Docker
+#      package:
+#        name: docker-ce
+#        state: latest
+#      become: yes
+#    - name: Start Docker service
+    - git:
+        repo: 'https://github.com/Asamasach/docker-compose'
+        dest: /home/ansible/docker-compose/
+        clone: yes
+        update: yes
+    - name: dns config
+      command: echo "{\n"dns":["8.8.8.8"]\n}" >> /etc/docker/daemon.json
+    - name: chmod
+      command: chmod +x /usr/local/bin/docker-compose
+#    - name: Change file mode
+#      file:
+#        path: /usr/local/bin/docker-compose
+#        state: +x
+###    - name: Docker-compose build
+###      command: docker-compose  -f /root/docker-compose/docker-compose.yml build
+    - name: ch usermod
+      command: usermod -a -G docker $USER
+#        
+#
+#    - name: Docker-compose up
+#      command: /usr/local/bin/docker-compose  -f /home/ansible/docker-compose/docker-compose.yml up -d 
+#      become: yes
+    #- name: Run Docker-compose.yml
+    - docker_compose:
+        project_src: /home/ansible/docker-compose/
+        state: present
+        build: yes
+      register: output
